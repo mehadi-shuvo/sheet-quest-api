@@ -7,9 +7,204 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum PublicationStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum ActivityKind {
+  SPREADSHEET
+}
+
+enum EnrollmentStatus {
+  ACTIVE
+  COMPLETED
+  WITHDRAWN
+}
+
+enum ActivityProgressStatus {
+  IN_PROGRESS
+  COMPLETED
+}
+
 model User {
-  id        String   @id @default(uuid()) @db.Uuid
-  email     String   @unique @db.VarChar(320)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                  String               @id @default(uuid()) @db.Uuid
+  email               String               @unique @db.VarChar(320)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  enrollments         Enrollment[]
+  activityProgress    ActivityProgress[]
+  activitySubmissions ActivitySubmission[]
+  activityDrafts      ActivityDraft[]
+}
+
+model Course {
+  id          String            @id @default(uuid()) @db.Uuid
+  slug        String            @unique @db.VarChar(128)
+  status      PublicationStatus @default(DRAFT)
+  archivedAt  DateTime?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  versions    CourseVersion[]
+  enrollments Enrollment[]
+}
+
+model CourseVersion {
+  id            String            @id @default(uuid()) @db.Uuid
+  courseId      String            @db.Uuid
+  versionNumber Int
+  status        PublicationStatus @default(DRAFT)
+  publishedAt   DateTime?
+  createdAt     DateTime          @default(now())
+  course        Course            @relation(fields: [courseId], references: [id], onDelete: Restrict)
+  modules       Module[]
+
+  @@unique([courseId, versionNumber])
+  @@index([courseId])
+}
+
+model Module {
+  id              String        @id @default(uuid()) @db.Uuid
+  courseVersionId String        @db.Uuid
+  stableKey       String        @db.VarChar(128)
+  position        Int
+  createdAt       DateTime      @default(now())
+  courseVersion   CourseVersion @relation(fields: [courseVersionId], references: [id], onDelete: Restrict)
+  lessons         Lesson[]
+
+  @@unique([courseVersionId, stableKey])
+  @@unique([courseVersionId, position])
+  @@index([courseVersionId])
+}
+
+model Lesson {
+  id        String          @id @default(uuid()) @db.Uuid
+  moduleId  String          @db.Uuid
+  stableKey String          @db.VarChar(128)
+  publicId  String          @unique @db.VarChar(64)
+  position  Int
+  createdAt DateTime        @default(now())
+  module    Module          @relation(fields: [moduleId], references: [id], onDelete: Restrict)
+  versions  LessonVersion[]
+
+  @@unique([moduleId, stableKey])
+  @@unique([moduleId, position])
+  @@index([moduleId])
+}
+
+model LessonVersion {
+  id            String            @id @default(uuid()) @db.Uuid
+  lessonId      String            @db.Uuid
+  versionNumber Int
+  status        PublicationStatus @default(DRAFT)
+  publishedAt   DateTime?
+  createdAt     DateTime          @default(now())
+  lesson        Lesson            @relation(fields: [lessonId], references: [id], onDelete: Restrict)
+  activities    Activity[]
+
+  @@unique([lessonId, versionNumber])
+  @@index([lessonId])
+}
+
+model Activity {
+  id              String            @id @default(uuid()) @db.Uuid
+  lessonVersionId String            @db.Uuid
+  stableKey       String            @db.VarChar(128)
+  kind            ActivityKind      @default(SPREADSHEET)
+  position        Int
+  createdAt       DateTime          @default(now())
+  lessonVersion   LessonVersion     @relation(fields: [lessonVersionId], references: [id], onDelete: Restrict)
+  versions        ActivityVersion[]
+
+  @@unique([lessonVersionId, stableKey])
+  @@unique([lessonVersionId, position])
+  @@index([lessonVersionId])
+}
+
+model ActivityVersion {
+  id                 String               @id @default(uuid()) @db.Uuid
+  activityId         String               @db.Uuid
+  versionNumber      Int
+  publicDefinition   Json                 @db.JsonB
+  privateDefinition  Json                 @db.JsonB
+  contentFingerprint String               @db.VarChar(128)
+  publishedAt        DateTime?
+  createdAt          DateTime             @default(now())
+  activity           Activity             @relation(fields: [activityId], references: [id], onDelete: Restrict)
+  progress           ActivityProgress[]
+  submissions        ActivitySubmission[]
+  drafts             ActivityDraft[]
+
+  @@unique([activityId, versionNumber])
+  @@index([activityId])
+}
+
+model Enrollment {
+  id          String           @id @default(uuid()) @db.Uuid
+  userId      String           @db.Uuid
+  courseId    String           @db.Uuid
+  status      EnrollmentStatus @default(ACTIVE)
+  enrolledAt  DateTime         @default(now())
+  completedAt DateTime?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  user        User             @relation(fields: [userId], references: [id], onDelete: Restrict)
+  course      Course           @relation(fields: [courseId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, courseId])
+  @@index([courseId])
+  @@index([userId])
+}
+
+model ActivityProgress {
+  id                String                 @id @default(uuid()) @db.Uuid
+  userId            String                 @db.Uuid
+  activityVersionId String                 @db.Uuid
+  status            ActivityProgressStatus @default(IN_PROGRESS)
+  startedAt         DateTime               @default(now())
+  completedAt       DateTime?
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+  user              User                   @relation(fields: [userId], references: [id], onDelete: Restrict)
+  activityVersion   ActivityVersion        @relation(fields: [activityVersionId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, activityVersionId])
+  @@index([activityVersionId])
+  @@index([userId, updatedAt])
+}
+
+model ActivitySubmission {
+  id                 String          @id @default(uuid()) @db.Uuid
+  userId             String          @db.Uuid
+  activityVersionId  String          @db.Uuid
+  idempotencyKey     String          @db.VarChar(128)
+  contentFingerprint String          @db.VarChar(128)
+  workbookSnapshot   Json            @db.JsonB
+  trustedResult      Json            @db.JsonB
+  submittedAt        DateTime        @default(now())
+  user               User            @relation(fields: [userId], references: [id], onDelete: Restrict)
+  activityVersion    ActivityVersion @relation(fields: [activityVersionId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, activityVersionId, idempotencyKey])
+  @@index([activityVersionId, submittedAt])
+  @@index([userId, submittedAt])
+}
+
+model ActivityDraft {
+  id                 String          @id @default(uuid()) @db.Uuid
+  userId             String          @db.Uuid
+  activityVersionId  String          @db.Uuid
+  revision           Int             @default(0)
+  contentFingerprint String          @db.VarChar(128)
+  workbookSnapshot   Json            @db.JsonB
+  expiresAt          DateTime?
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  user               User            @relation(fields: [userId], references: [id], onDelete: Restrict)
+  activityVersion    ActivityVersion @relation(fields: [activityVersionId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, activityVersionId])
+  @@index([activityVersionId])
+  @@index([userId, updatedAt])
 }

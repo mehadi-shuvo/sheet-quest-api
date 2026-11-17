@@ -4,6 +4,12 @@ WORKDIR /app
 RUN apk add --no-cache openssl
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
+FROM deps AS development
+ENV NODE_ENV=development
+COPY prisma ./prisma
+RUN npx prisma generate
+COPY . .
+CMD ["npm", "run", "dev"]
 FROM deps AS build
 COPY prisma ./prisma
 RUN npx prisma generate
